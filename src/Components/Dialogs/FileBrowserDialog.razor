@@ -1,0 +1,421 @@
+@using System.IO
+@using Microsoft.AspNetCore.Components.Web
+@inject IDialogService DialogService
+
+<MudDialog>
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.FolderOpen" Class="mr-3" />
+            Select Image File
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudGrid Spacing="2" Style="height: 600px;">
+            @* Left column - Folder tree *@
+            <MudItem xs="3" Style="height: 100%;">
+                <MudPaper Elevation="1" Class="pa-2" Style="height: 100%; overflow-y: auto;">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Folders</MudText>
+                    <MudTreeView T="string" Dense="true" ExpandOnClick="false">
+                        @foreach (var allowedPath in AllowedPaths)
+                        {
+                            <MudTreeViewItem @bind-Expanded="@_expandedFolders[allowedPath]" 
+                                           Value="@allowedPath" 
+                                           Text="@(string.IsNullOrEmpty(Path.GetFileName(allowedPath)) ? allowedPath : Path.GetFileName(allowedPath))" 
+                                           Icon="@Icons.Material.Filled.Computer"
+                                           OnClick="@((MouseEventArgs e) => NavigateToPath(allowedPath))">
+                                @RenderSubfolders(allowedPath)
+                            </MudTreeViewItem>
+                        }
+                    </MudTreeView>
+                </MudPaper>
+            </MudItem>
+            
+            @* Middle column - File list *@
+            <MudItem xs="5" Style="height: 100%;">
+                <MudPaper Elevation="1" Class="pa-2" Style="height: 100%; display: flex; flex-direction: column;">
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@_errorMessage</MudAlert>
+                    }
+                    
+                    <div class="d-flex align-center mb-2" style="min-height: auto;">
+                        @for (int i = 0; i < _breadcrumbPaths.Count; i++)
+                        {
+                            var index = i;
+                            <MudLink Underline="Underline.Hover" OnClick="@(() => NavigateToPath(_breadcrumbPaths[index]))" Class="pa-1">
+                                @_breadcrumbNames[index]
+                            </MudLink>
+                            @if (i < _breadcrumbPaths.Count - 1)
+                            {
+                                <MudText Class="px-1">/</MudText>
+                            }
+                        }
+                    </div>
+                    
+                    <div style="flex: 1; overflow-y: auto;">
+                        <MudList T="string" Dense="true">
+                            @if (_currentPath != Path.GetPathRoot(_currentPath))
+                            {
+                                <MudListItem Dense="true" Icon="@Icons.Material.Filled.ArrowBack" 
+                                           OnClick="NavigateUp" Class="py-1">
+                                    <MudText Typo="Typo.body2">..</MudText>
+                                </MudListItem>
+                            }
+                            
+                            @foreach (var directory in _directories)
+                            {
+                                <MudListItem Dense="true" Icon="@Icons.Material.Filled.Folder" 
+                                           OnClick="@(() => NavigateToDirectory(directory))" Class="py-1">
+                                    <MudText Typo="Typo.body2">@Path.GetFileName(directory)</MudText>
+                                </MudListItem>
+                            }
+                            
+                            @foreach (var file in _files)
+                            {
+                                <MudListItem Dense="true" Icon="@GetFileIcon(file)" 
+                                           OnClick="@(() => SelectFile(file))" Class="py-1"
+                                           Style="@(file == _selectedFile ? "background-color: var(--mud-palette-primary-hover);" : "")">
+                                    <div class="d-flex justify-space-between align-center" style="width: 100%;">
+                                        <MudText Typo="Typo.body2" Class="text-truncate">@Path.GetFileName(file)</MudText>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="ml-2">
+                                            @GetFileSize(file)
+                                        </MudText>
+                                    </div>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </div>
+                </MudPaper>
+            </MudItem>
+            
+            @* Right column - Preview *@
+            <MudItem xs="4" Style="height: 100%;">
+                <MudPaper Elevation="1" Class="pa-2" Style="height: 100%; display: flex; flex-direction: column;">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Preview</MudText>
+                    
+                    @if (!string.IsNullOrEmpty(_selectedFile))
+                    {
+                        <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            @if (!string.IsNullOrEmpty(_previewImageUrl))
+                            {
+                                <MudImage Src="@_previewImageUrl" Alt="Preview" 
+                                        Style="max-width: 100%; max-height: 80%; object-fit: contain;" />
+                                <MudText Typo="Typo.caption" Class="mt-2 text-center">
+                                    @Path.GetFileName(_selectedFile)
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudProgressCircular Indeterminate="true" />
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
+                            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                                Select an image to preview
+                            </MudText>
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" 
+                   OnClick="Submit" Disabled="@(string.IsNullOrEmpty(_selectedFile))">
+            Select
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] IMudDialogInstance MudDialog { get; set; } = null!;
+    
+    [Parameter] public List<string> AllowedPaths { get; set; } = new();
+    [Parameter] public string[] FileExtensions { get; set; } = { ".png", ".jpg", ".jpeg" };
+    [Parameter] public string? InitialPath { get; set; }
+    
+    private string _currentPath = "";
+    private List<string> _directories = new();
+    private List<string> _files = new();
+    private string? _selectedFile;
+    private string? _errorMessage;
+    private List<string> _breadcrumbPaths = new();
+    private List<string> _breadcrumbNames = new();
+    private string? _previewImageUrl;
+    private Dictionary<string, bool> _expandedFolders = new();
+    private string? _activatedValue;
+    
+    protected override void OnInitialized()
+    {
+        // Initialize expanded state for allowed paths
+        foreach (var path in AllowedPaths)
+        {
+            _expandedFolders[path] = false;
+        }
+        
+        // Determine starting path
+        if (!string.IsNullOrEmpty(InitialPath) && File.Exists(InitialPath))
+        {
+            // Start in the directory of the initial file
+            var directory = Path.GetDirectoryName(InitialPath);
+            if (!string.IsNullOrEmpty(directory) && IsPathAllowed(directory))
+            {
+                _currentPath = directory;
+                _selectedFile = InitialPath;
+            }
+            else if (AllowedPaths.Any())
+            {
+                _currentPath = AllowedPaths.First();
+            }
+            else
+            {
+                _currentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            }
+        }
+        else if (AllowedPaths.Any())
+        {
+            _currentPath = AllowedPaths.First();
+        }
+        else
+        {
+            _currentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        }
+        
+        RefreshDirectory();
+        
+        // If we have an initial file, load its preview
+        if (!string.IsNullOrEmpty(_selectedFile))
+        {
+            _ = LoadImagePreview(_selectedFile);
+        }
+    }
+    
+    private void RefreshDirectory()
+    {
+        _errorMessage = null;
+        _directories.Clear();
+        _files.Clear();
+        
+        try
+        {
+            // Check if the current path is within allowed paths
+            if (AllowedPaths.Any() && !IsPathAllowed(_currentPath))
+            {
+                _errorMessage = "This directory is not within the allowed paths.";
+                return;
+            }
+            
+            // Get directories
+            _directories = Directory.GetDirectories(_currentPath)
+                .Where(d => !Path.GetFileName(d).StartsWith("."))
+                .OrderBy(d => d)
+                .ToList();
+            
+            // Get files with matching extensions
+            _files = Directory.GetFiles(_currentPath)
+                .Where(f => FileExtensions.Contains(Path.GetExtension(f).ToLower()))
+                .OrderBy(f => f)
+                .ToList();
+                
+            // Update breadcrumbs
+            UpdateBreadcrumbs();
+            
+            // Expand current path in tree
+            ExpandPathInTree(_currentPath);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _errorMessage = "Access denied to this directory.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+        }
+    }
+    
+    private bool IsPathAllowed(string path)
+    {
+        if (!AllowedPaths.Any())
+            return true;
+            
+        return AllowedPaths.Any(allowed => 
+            path.StartsWith(allowed, StringComparison.OrdinalIgnoreCase));
+    }
+    
+    private void UpdateBreadcrumbs()
+    {
+        _breadcrumbPaths.Clear();
+        _breadcrumbNames.Clear();
+        
+        var parts = _currentPath.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        var currentPath = "";
+        
+        foreach (var part in parts)
+        {
+            currentPath = string.IsNullOrEmpty(currentPath) 
+                ? part + Path.DirectorySeparatorChar 
+                : Path.Combine(currentPath, part);
+                
+            _breadcrumbPaths.Add(currentPath);
+            _breadcrumbNames.Add(part);
+        }
+    }
+    
+    private void ExpandPathInTree(string path)
+    {
+        // Expand all parent folders leading to current path
+        var current = path;
+        while (!string.IsNullOrEmpty(current))
+        {
+            _expandedFolders[current] = true;
+            var parent = Directory.GetParent(current);
+            if (parent == null) break;
+            current = parent.FullName;
+        }
+    }
+    
+    private RenderFragment RenderSubfolders(string path) => builder =>
+    {
+        if (_expandedFolders.ContainsKey(path) && _expandedFolders[path])
+        {
+            try
+            {
+                var subdirs = Directory.GetDirectories(path)
+                    .Where(d => !Path.GetFileName(d).StartsWith(".") && IsPathAllowed(d))
+                    .OrderBy(d => d);
+                    
+                foreach (var dir in subdirs)
+                {
+                    var currentDir = dir;
+                    builder.OpenComponent<MudTreeViewItem<string>>(0);
+                    builder.AddAttribute(1, "Value", currentDir);
+                    builder.AddAttribute(2, "Text", Path.GetFileName(currentDir));
+                    builder.AddAttribute(3, "Icon", Icons.Material.Filled.Folder);
+                    
+                    // Check if this folder is expanded
+                    if (_expandedFolders.ContainsKey(currentDir))
+                    {
+                        builder.AddAttribute(4, "Expanded", _expandedFolders[currentDir]);
+                        builder.AddAttribute(5, "ExpandedChanged", EventCallback.Factory.Create<bool>(this, 
+                            (expanded) => _expandedFolders[currentDir] = expanded));
+                    }
+                    
+                    builder.AddAttribute(6, "OnClick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) => NavigateToPath(currentDir)));
+                    builder.AddAttribute(7, "ChildContent", RenderSubfolders(currentDir));
+                    builder.CloseComponent();
+                }
+            }
+            catch
+            {
+                // Ignore directories we can't access
+            }
+        }
+    };
+    
+    private void NavigateToDirectory(string path)
+    {
+        _currentPath = path;
+        _selectedFile = null;
+        RefreshDirectory();
+    }
+    
+    private void NavigateToPath(string path)
+    {
+        _currentPath = path;
+        _selectedFile = null;
+        _activatedValue = path;
+        RefreshDirectory();
+        StateHasChanged();
+    }
+    
+    private void NavigateUp()
+    {
+        var parent = Directory.GetParent(_currentPath);
+        if (parent != null)
+        {
+            _currentPath = parent.FullName;
+            _selectedFile = null;
+            RefreshDirectory();
+        }
+    }
+    
+    private async Task SelectFile(string file)
+    {
+        _selectedFile = file;
+        _previewImageUrl = null;
+        
+        // Load preview
+        await LoadImagePreview(file);
+    }
+    
+    private async Task LoadImagePreview(string imagePath)
+    {
+        try
+        {
+            var imageBytes = await File.ReadAllBytesAsync(imagePath);
+            var extension = Path.GetExtension(imagePath).ToLower();
+            var mimeType = extension switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                _ => "image/jpeg"
+            };
+            
+            var base64 = Convert.ToBase64String(imageBytes);
+            _previewImageUrl = $"data:{mimeType};base64,{base64}";
+            
+            // Image dimensions could be added here if needed in the future
+            
+            StateHasChanged();
+        }
+        catch
+        {
+            _previewImageUrl = null;
+        }
+    }
+    
+    private string GetFileIcon(string file)
+    {
+        var extension = Path.GetExtension(file).ToLower();
+        return extension switch
+        {
+            ".png" or ".jpg" or ".jpeg" => Icons.Material.Filled.Image,
+            _ => Icons.Material.Filled.InsertDriveFile
+        };
+    }
+    
+    private string GetFileSize(string file)
+    {
+        try
+        {
+            var info = new FileInfo(file);
+            var size = info.Length;
+            
+            if (size < 1024)
+                return $"{size} B";
+            else if (size < 1024 * 1024)
+                return $"{size / 1024:F1} KB";
+            else
+                return $"{size / (1024 * 1024):F1} MB";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+    
+    
+    private void Cancel() => MudDialog.Cancel();
+    
+    private void Submit()
+    {
+        if (!string.IsNullOrEmpty(_selectedFile))
+        {
+            MudDialog.Close(DialogResult.Ok(_selectedFile));
+        }
+    }
+}
