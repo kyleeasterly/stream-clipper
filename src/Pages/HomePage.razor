@@ -1,7 +1,116 @@
-﻿@page "/"
+@page "/"
+@inject IDialogService DialogService
+@inject WhisperConnector WhisperConnector
+@inject ISnackbar Snackbar
 
 <PageTitle>StreamClipper</PageTitle>
 
-<MudAlert Dense="true" Severity="Severity.Warning">
-    <MudText Typo="Typo.body1">This is a prerelease version of StreamClipper.</MudText>
-</MudAlert>
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudGrid>
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h4" Class="mb-4">Stream Clipper</MudText>
+                
+                <MudGrid>
+                    <MudItem xs="12">
+                        <MudTextField Label="Selected Video File" 
+                                    Value="@_selectedVideoPath" 
+                                    ReadOnly="true" 
+                                    Variant="Variant.Outlined"
+                                    Adornment="Adornment.End"
+                                    AdornmentIcon="@Icons.Material.Filled.VideoFile" />
+                    </MudItem>
+                    
+                    <MudItem xs="12">
+                        <MudButton Variant="Variant.Filled" 
+                                 Color="Color.Primary" 
+                                 StartIcon="@Icons.Material.Filled.FolderOpen"
+                                 OnClick="SelectVideoFile">
+                            Select MP4 File
+                        </MudButton>
+                        
+                        <MudButton Variant="Variant.Filled" 
+                                 Color="Color.Secondary" 
+                                 StartIcon="@Icons.Material.Filled.Mic"
+                                 OnClick="RunWhisper"
+                                 Disabled="@(string.IsNullOrEmpty(_selectedVideoPath) || _isProcessing)"
+                                 Class="ml-2">
+                            @if (_isProcessing)
+                            {
+                                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                                <MudText Class="ms-2">Transcribing...</MudText>
+                            }
+                            else
+                            {
+                                <MudText>Run Whisper</MudText>
+                            }
+                        </MudButton>
+                    </MudItem>
+                    
+                    @if (!string.IsNullOrEmpty(_outputJsonPath))
+                    {
+                        <MudItem xs="12">
+                            <MudAlert Severity="Severity.Success" Icon="@Icons.Material.Filled.CheckCircle">
+                                Transcription complete! JSON saved to: @_outputJsonPath
+                            </MudAlert>
+                        </MudItem>
+                    }
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</MudContainer>
+
+@code {
+    private string? _selectedVideoPath;
+    private string? _outputJsonPath;
+    private bool _isProcessing;
+
+    private async Task SelectVideoFile()
+    {
+        var parameters = new DialogParameters
+        {
+            ["AllowedPaths"] = new List<string> { Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) },
+            ["FileExtensions"] = new[] { ".mp4", ".MP4" },
+            ["InitialPath"] = _selectedVideoPath
+        };
+
+        var options = new DialogOptions 
+        { 
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<FileBrowserDialog>("Select Video File", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is string selectedPath)
+        {
+            _selectedVideoPath = selectedPath;
+            _outputJsonPath = null;
+        }
+    }
+
+    private async Task RunWhisper()
+    {
+        if (string.IsNullOrEmpty(_selectedVideoPath))
+            return;
+
+        _isProcessing = true;
+        _outputJsonPath = null;
+
+        try
+        {
+            _outputJsonPath = await WhisperConnector.RunWhisperAsync(_selectedVideoPath);
+            Snackbar.Add($"Transcription completed successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error running Whisper: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}

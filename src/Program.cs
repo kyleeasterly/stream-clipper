@@ -1,5 +1,6 @@
 using MudBlazor.Services;
 using StreamClipper;
+using StreamClipper.Connectors;
 using StreamClipper.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,6 +11,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<EmbeddingFileHandler>();
+builder.Services.AddScoped<WhisperConnector>();
 
 // Configure SignalR for larger file uploads
 builder.Services.AddServerSideBlazor()
