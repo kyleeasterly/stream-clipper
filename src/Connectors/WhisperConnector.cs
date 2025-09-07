@@ -25,7 +25,7 @@ public class WhisperConnector
         {
             _logger.LogInformation("Starting Whisper transcription for: {VideoPath}", videoPath);
 
-            var arguments = $"\"{videoPath}\" --model base --output_format json --output_dir \"{outputDir}\"";
+            var arguments = $"\"{videoPath}\" --model base --output_format json --output_dir \"{outputDir}\" --word_timestamps True";
             
             Console.WriteLine("========================================");
             Console.WriteLine("Executing Whisper command:");
