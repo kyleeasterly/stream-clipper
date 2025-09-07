@@ -25,10 +25,19 @@ public class WhisperConnector
         {
             _logger.LogInformation("Starting Whisper transcription for: {VideoPath}", videoPath);
 
+            var arguments = $"\"{videoPath}\" --model base --output_format json --output_dir \"{outputDir}\"";
+            
+            Console.WriteLine("========================================");
+            Console.WriteLine("Executing Whisper command:");
+            Console.WriteLine($"whisper {arguments}");
+            Console.WriteLine("========================================");
+            
+            _logger.LogInformation("Whisper command: whisper {Arguments}", arguments);
+
             var processStartInfo = new ProcessStartInfo
             {
                 FileName = "whisper",
-                Arguments = $"\"{videoPath}\" --model base --output_format json --output_dir \"{outputDir}\"",
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
