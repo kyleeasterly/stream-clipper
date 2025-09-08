@@ -1,6 +1,8 @@
 @using StreamClipper.Models
 @using StreamClipper.Services
 @inject TranscriptionService TranscriptionService
+@inject TopicSegmentationService TopicSegmentationService
+@inject ISnackbar Snackbar
 
 <MudGrid>
     @if (Transcription != null)
@@ -30,8 +32,14 @@
                                    OnClick="@(() => SelectSegment(segment))"
                                    Style="@(segment == _selectedSegment ? "background-color: var(--mud-palette-primary-hover);" : "cursor: pointer;")">
                             <div>
+                                @if (Project?.Topics?.Any() == true)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="pa-1 mb-1">
+                                        @TopicSegmentationService.GetTopicForSegment(Project.Topics, segment.Id)
+                                    </MudChip>
+                                }
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">
-                                    @TranscriptionService.FormatTimestamp(segment.Start) - @TranscriptionService.FormatTimestamp(segment.End)
+                                    #@segment.Id | @TranscriptionService.FormatTimestamp(segment.Start) - @TranscriptionService.FormatTimestamp(segment.End)
                                 </MudText>
                                 <MudText Typo="Typo.body2" Class="text-truncate">
                                     @segment.Text.Trim()
@@ -126,10 +134,48 @@
 
         <MudItem xs="12">
             <MudPaper Class="pa-3">
-                <MudText Typo="Typo.h6" Class="mb-3">Full Transcript</MudText>
+                <div Class="d-flex justify-space-between align-center mb-3">
+                    <MudText Typo="Typo.h6">Full Transcript</MudText>
+                    @if (Project == null && Transcription != null)
+                    {
+                        <MudButton Variant="Variant.Filled"
+                                 Color="Color.Primary"
+                                 StartIcon="@Icons.Material.Filled.AutoAwesome"
+                                 OnClick="AnalyzeTopics"
+                                 Disabled="@_isProcessingTopics">
+                            @if (_isProcessingTopics)
+                            {
+                                <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                                <MudText Class="ms-2">Analyzing...</MudText>
+                            }
+                            else
+                            {
+                                <MudText>Analyze Topics with GPT-5</MudText>
+                            }
+                        </MudButton>
+                    }
+                </div>
+                
+                @if (Project?.Topics?.Any() == true)
+                {
+                    <MudPaper Elevation="1" Class="pa-3 mb-3">
+                        <MudText Typo="Typo.subtitle1" Class="mb-2">Topic Outline</MudText>
+                        <MudList T="TopicSegment" Dense="true">
+                            @foreach (var topic in Project.Topics)
+                            {
+                                <MudListItem T="TopicSegment">
+                                    <MudText>
+                                        <strong>[@topic.StartSegmentId-@topic.EndSegmentId]</strong> @topic.Topic
+                                    </MudText>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudPaper>
+                }
+                
                 <MudPaper Elevation="1" Class="pa-3" Style="max-height: 400px; overflow-y: auto;">
                     <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">
-                        @Transcription.Text
+                        @(Transcription?.Text ?? "")
                     </MudText>
                 </MudPaper>
             </MudPaper>
@@ -153,10 +199,13 @@
 
 @code {
     [Parameter] public WhisperTranscription? Transcription { get; set; }
+    [Parameter] public StreamClipperProject? Project { get; set; }
     [Parameter] public EventCallback<TranscriptionSegment> OnSegmentSelected { get; set; }
+    [Parameter] public EventCallback<StreamClipperProject> OnProjectCreated { get; set; }
 
     private TranscriptionSegment? _selectedSegment;
     private string _searchText = string.Empty;
+    private bool _isProcessingTopics = false;
 
     private IEnumerable<TranscriptionSegment> GetFilteredSegments()
     {
@@ -187,5 +236,35 @@
             >= 0.7 => Color.Warning,
             _ => Color.Error
         };
+    }
+    
+    private async Task AnalyzeTopics()
+    {
+        if (Transcription == null)
+            return;
+            
+        _isProcessingTopics = true;
+        StateHasChanged();
+        
+        try
+        {
+            var project = await TopicSegmentationService.CreateProjectAsync(
+                Transcription,
+                null, // video path would come from parent
+                null  // json path would come from parent
+            );
+            
+            await OnProjectCreated.InvokeAsync(project);
+            Snackbar.Add("Topics analyzed and project created successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to analyze topics: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isProcessingTopics = false;
+            StateHasChanged();
+        }
     }
 }

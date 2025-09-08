@@ -5,6 +5,7 @@
 @inject IDialogService DialogService
 @inject WhisperConnector WhisperConnector
 @inject TranscriptionService TranscriptionService
+@inject TopicSegmentationService TopicSegmentationService
 @inject ISnackbar Snackbar
 
 <PageTitle>StreamClipper</PageTitle>
@@ -58,6 +59,15 @@
                                  Class="ml-2">
                             Load JSON
                         </MudButton>
+                        
+                        <MudButton Variant="Variant.Outlined" 
+                                 Color="Color.Success" 
+                                 StartIcon="@Icons.Material.Filled.FolderOpen"
+                                 OnClick="LoadProject"
+                                 Disabled="@_isProcessing"
+                                 Class="ml-2">
+                            Load Project
+                        </MudButton>
                     </MudItem>
                     
                     @if (!string.IsNullOrEmpty(_outputJsonPath) && _loadedTranscription == null)
@@ -72,11 +82,14 @@
             </MudPaper>
         </MudItem>
         
-        @if (_loadedTranscription != null)
+        @if (_loadedTranscription != null || _currentProject != null)
         {
             <MudItem xs="12">
                 <MudPaper Class="pa-4">
-                    <TranscriptionViewer Transcription="@_loadedTranscription" />
+                    <TranscriptionViewer 
+                        Transcription="@(_currentProject?.Transcription ?? _loadedTranscription)" 
+                        Project="@_currentProject"
+                        OnProjectCreated="@HandleProjectCreated" />
                 </MudPaper>
             </MudItem>
         }
@@ -88,6 +101,7 @@
     private string? _outputJsonPath;
     private bool _isProcessing;
     private WhisperTranscription? _loadedTranscription;
+    private StreamClipperProject? _currentProject;
 
     private async Task SelectVideoFile()
     {
@@ -129,6 +143,12 @@
             
             // Auto-load the generated JSON
             await LoadTranscriptionFromFile(_outputJsonPath);
+            
+            // Store the paths for project creation
+            if (_loadedTranscription != null)
+            {
+                _loadedTranscription.Segments = _loadedTranscription.Segments ?? new List<TranscriptionSegment>();
+            }
         }
         catch (Exception ex)
         {
@@ -182,6 +202,64 @@
         catch (Exception ex)
         {
             Snackbar.Add($"Error loading transcription: {ex.Message}", Severity.Error);
+        }
+    }
+    
+    private async Task HandleProjectCreated(StreamClipperProject project)
+    {
+        _currentProject = project;
+        _currentProject.OriginalVideoPath = _selectedVideoPath;
+        _currentProject.WhisperJsonPath = _outputJsonPath;
+        
+        // Save the updated project with paths
+        await TopicSegmentationService.SaveProjectAsync(_currentProject);
+        
+        StateHasChanged();
+    }
+    
+    private async Task LoadProject()
+    {
+        var parameters = new DialogParameters
+        {
+            ["AllowedPaths"] = new List<string> { 
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "StreamClipper")
+            },
+            ["FileExtensions"] = new[] { ".scproject.json" },
+            ["InitialPath"] = null
+        };
+
+        var options = new DialogOptions 
+        { 
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<FileBrowserDialog>("Select StreamClipper Project", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is string selectedPath)
+        {
+            try
+            {
+                _currentProject = await TopicSegmentationService.LoadProjectAsync(selectedPath);
+                if (_currentProject != null)
+                {
+                    _loadedTranscription = _currentProject.Transcription;
+                    _selectedVideoPath = _currentProject.OriginalVideoPath;
+                    _outputJsonPath = _currentProject.WhisperJsonPath;
+                    Snackbar.Add($"Project loaded successfully!", Severity.Success);
+                    StateHasChanged();
+                }
+                else
+                {
+                    Snackbar.Add($"Failed to load project file", Severity.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Error loading project: {ex.Message}", Severity.Error);
+            }
         }
     }
 }
