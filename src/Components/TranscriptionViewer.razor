@@ -3,6 +3,7 @@
 @inject TranscriptionService TranscriptionService
 @inject TopicSegmentationService TopicSegmentationService
 @inject ISnackbar Snackbar
+@inject ILogger<TranscriptionViewer> Logger
 
 <MudGrid>
     @if (Transcription != null)
@@ -323,47 +324,76 @@
     
     private async Task HandleTopicClick(TopicSegment topic)
     {
+        Logger.LogInformation($"Topic clicked: '{topic.Topic}' [{topic.StartSegmentId}-{topic.EndSegmentId}]");
+        
         if (topic.IsSingleSegment || _isProcessingTopic != null || Transcription?.Segments == null)
+        {
+            if (topic.IsSingleSegment)
+                Logger.LogDebug($"Topic '{topic.Topic}' is a single segment - cannot drill down");
+            if (_isProcessingTopic != null)
+                Logger.LogDebug($"Already processing topic '{_isProcessingTopic}' - ignoring click");
+            if (Transcription?.Segments == null)
+                Logger.LogWarning("No transcription segments available");
             return;
+        }
             
         // If topic already has children, just expand/collapse
         if (topic.HasChildren)
         {
+            Logger.LogDebug($"Topic '{topic.Topic}' already has {topic.Children?.Count} children - toggling expansion");
             await HandleToggleExpansion(topic);
             return;
         }
+        
+        Logger.LogInformation($"🚀 Starting sub-topic generation for: '{topic.Topic}'");
+        Logger.LogInformation($"Topic range: Segments {topic.StartSegmentId} to {topic.EndSegmentId} ({topic.SegmentCount} segments)");
         
         _isProcessingTopic = topic.Id;
         StateHasChanged();
         
         try
         {
+            Logger.LogDebug($"Calling TopicSegmentationService.SegmentSubtopicAsync...");
             var subTopics = await TopicSegmentationService.SegmentSubtopicAsync(topic, Transcription.Segments);
+            
+            Logger.LogInformation($"Received {subTopics.Count} sub-topics from segmentation service");
             
             if (subTopics.Any())
             {
                 topic.Children = subTopics;
                 _expandedTopics.Add(topic.Id);
                 
+                Logger.LogDebug("Sub-topics generated:");
+                foreach (var subTopic in subTopics)
+                {
+                    Logger.LogDebug($"  - [{subTopic.StartSegmentId}-{subTopic.EndSegmentId}] {subTopic.Topic}");
+                }
+                
                 if (Project != null)
                 {
                     Project.HasUnsavedChanges = true;
                     await OnProjectUpdated.InvokeAsync(Project);
+                    Logger.LogDebug("Project marked as having unsaved changes");
                 }
                 
-                Snackbar.Add($"Generated {subTopics.Count} sub-topics for '{topic.Topic}'", Severity.Success);
+                var message = $"Generated {subTopics.Count} sub-topics for '{topic.Topic}'";
+                Logger.LogInformation($"✅ {message}");
+                Snackbar.Add(message, Severity.Success);
             }
             else
             {
+                Logger.LogWarning($"No sub-topics could be identified for '{topic.Topic}'");
                 Snackbar.Add("No sub-topics could be identified", Severity.Info);
             }
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, $"Failed to generate sub-topics for '{topic.Topic}'");
             Snackbar.Add($"Failed to generate sub-topics: {ex.Message}", Severity.Error);
         }
         finally
         {
+            Logger.LogDebug($"Clearing processing state for topic '{topic.Topic}'");
             _isProcessingTopic = null;
             StateHasChanged();
         }

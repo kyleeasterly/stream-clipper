@@ -5,6 +5,25 @@ using StreamClipper.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure verbose logging
+builder.Logging.ClearProviders();
+builder.Logging.AddSimpleConsole(options =>
+{
+    options.IncludeScopes = true;
+    options.TimestampFormat = "HH:mm:ss.fff ";
+    options.SingleLine = false;
+});
+builder.Logging.AddDebug();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+
+// Add more verbose logging for specific namespaces
+builder.Logging.AddFilter("StreamClipper", LogLevel.Debug);
+builder.Logging.AddFilter("StreamClipper.Services", LogLevel.Debug);
+builder.Logging.AddFilter("StreamClipper.Connectors", LogLevel.Debug);
+builder.Logging.AddFilter("StreamClipper.Components", LogLevel.Debug);
+builder.Logging.AddFilter("Microsoft.AspNetCore.SignalR", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
+
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

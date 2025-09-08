@@ -1,6 +1,7 @@
 using OpenAI.Chat;
 using OpenAI.Embeddings;
 using System.ClientModel;
+using Microsoft.Extensions.Logging;
 
 namespace StreamClipper.Connectors;
 
@@ -10,9 +11,30 @@ public class OpenAiConnector
     private readonly EmbeddingClient _embeddingClient;
     private readonly string _model;
     private readonly string _embeddingModel;
+    private readonly ILogger<OpenAiConnector> _logger;
 
     public OpenAiConnector(string model = "gpt-4o-mini", string embeddingModel = "text-embedding-3-small")
+        : this(model, null, embeddingModel)
     {
+    }
+    
+    public OpenAiConnector(string model, ILogger<OpenAiConnector>? logger, string embeddingModel = "text-embedding-3-small")
+    {
+        // Use provided logger or create a default one
+        if (logger == null)
+        {
+            using var loggerFactory = LoggerFactory.Create(builder =>
+            {
+                builder.AddConsole();
+                builder.SetMinimumLevel(LogLevel.Debug);
+            });
+            _logger = loggerFactory.CreateLogger<OpenAiConnector>();
+        }
+        else
+        {
+            _logger = logger;
+        }
+
         var apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") 
             ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is not set");
         
@@ -20,23 +42,50 @@ public class OpenAiConnector
         _embeddingModel = embeddingModel;
         _chatClient = new ChatClient(model, apiKey);
         _embeddingClient = new EmbeddingClient(embeddingModel, apiKey);
+        
+        _logger.LogInformation($"OpenAI Connector initialized with model: {model}");
     }
 
     public async Task<string> GenerateCompletionAsync(
         string systemPrompt, 
         string userMessage)
     {
+        _logger.LogInformation($"=== Starting OpenAI API call to {_model} ===");
+        _logger.LogDebug($"System prompt: {systemPrompt.Substring(0, Math.Min(200, systemPrompt.Length))}...");
+        _logger.LogDebug($"User message length: {userMessage.Length} characters");
+        
         var messages = new List<ChatMessage>
         {
             new SystemChatMessage(systemPrompt),
             new UserChatMessage(userMessage)
         };
 
-
-
-        var completion = await _chatClient.CompleteChatAsync(messages);
-        
-        return completion.Value.Content[0].Text;
+        try
+        {
+            _logger.LogInformation($"Sending request to OpenAI {_model}...");
+            var startTime = DateTime.UtcNow;
+            
+            var completion = await _chatClient.CompleteChatAsync(messages);
+            
+            var duration = (DateTime.UtcNow - startTime).TotalSeconds;
+            var responseText = completion.Value.Content[0].Text;
+            
+            _logger.LogInformation($"✅ OpenAI API call completed in {duration:F2} seconds");
+            _logger.LogInformation($"Response length: {responseText.Length} characters");
+            _logger.LogDebug($"Response preview: {responseText.Substring(0, Math.Min(200, responseText.Length))}...");
+            
+            if (completion.Value.Usage != null)
+            {
+                _logger.LogInformation($"Token usage - Input: {completion.Value.Usage.InputTokenCount}, Output: {completion.Value.Usage.OutputTokenCount}, Total: {completion.Value.Usage.TotalTokenCount}");
+            }
+            
+            return responseText;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"❌ OpenAI API call failed: {ex.Message}");
+            throw;
+        }
     }
 
     public async Task<float[]> GenerateEmbeddingAsync(string text)

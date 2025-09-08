@@ -17,7 +17,16 @@ public class TopicSegmentationService
     {
         _logger = logger;
         _configuration = configuration;
-        _openAiConnector = new OpenAiConnector("gpt-5-mini");
+        
+        // Create a logger factory for OpenAiConnector
+        using var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole();
+            builder.SetMinimumLevel(LogLevel.Debug);
+        });
+        var openAiLogger = loggerFactory.CreateLogger<OpenAiConnector>();
+        
+        _openAiConnector = new OpenAiConnector("gpt-5-mini", openAiLogger);
         
         // Get data folder from configuration
         _dataFolder = _configuration["DataFolder"] ?? Path.Combine(
@@ -242,27 +251,36 @@ Important: Do not include every segment ID, only the starting ID of each new top
         TopicSegment parentTopic,
         List<TranscriptionSegment> allSegments)
     {
+        _logger.LogInformation($"=== Starting sub-topic segmentation for: '{parentTopic.Topic}' ===");
+        _logger.LogInformation($"Parent topic range: Segments {parentTopic.StartSegmentId} to {parentTopic.EndSegmentId} ({parentTopic.SegmentCount} segments)");
+        
         if (parentTopic.IsSingleSegment)
         {
-            _logger.LogWarning("Cannot segment a single segment");
+            _logger.LogWarning($"Cannot segment a single segment. Topic '{parentTopic.Topic}' only contains segment {parentTopic.StartSegmentId}");
             return new List<TopicSegment>();
         }
 
         try
         {
+            _logger.LogDebug($"Total segments available: {allSegments.Count}");
+            
             // Get only the segments in the parent topic's range
             var relevantSegments = allSegments
                 .Where(s => s.Id >= parentTopic.StartSegmentId && s.Id <= parentTopic.EndSegmentId)
                 .ToList();
 
+            _logger.LogInformation($"Filtered to {relevantSegments.Count} relevant segments for sub-topic analysis");
+
             if (!relevantSegments.Any())
             {
-                _logger.LogWarning("No segments found in the specified range");
+                _logger.LogWarning($"No segments found in the specified range [{parentTopic.StartSegmentId}-{parentTopic.EndSegmentId}]");
                 return new List<TopicSegment>();
             }
 
             // Prepare the message with the subset of segments
+            _logger.LogDebug("Preparing segment message for GPT...");
             var userMessage = PrepareSegmentMessage(relevantSegments);
+            _logger.LogDebug($"User message prepared: {userMessage.Length} characters");
             
             // Modified system prompt for sub-segmentation
             var systemPrompt = $@"You are analyzing a portion of a video transcript that covers the topic: '{parentTopic.Topic}'.
@@ -287,34 +305,51 @@ Example output:
 
 Important: Only return segment IDs that are within the parent topic's range.";
 
+            _logger.LogInformation($"Calling GPT-5-mini for sub-topic analysis...");
+            _logger.LogDebug($"System prompt length: {systemPrompt.Length} characters");
+            
             // Call GPT-5-mini
             var response = await _openAiConnector.GenerateCompletionAsync(
                 systemPrompt,
                 userMessage
             );
 
+            _logger.LogInformation($"Received response from GPT-5-mini: {response.Length} characters");
+            _logger.LogDebug($"GPT Response preview: {response.Substring(0, Math.Min(200, response.Length))}...");
+
             // Parse the response into sub-topics
+            _logger.LogDebug("Parsing GPT response into topic segments...");
             var subTopics = ParseTopicResponse(response, parentTopic.EndSegmentId + 1);
+            
+            _logger.LogInformation($"Parsed {subTopics.Count} sub-topics from GPT response");
             
             // Set the parent-child relationships
             foreach (var subTopic in subTopics)
             {
                 subTopic.ParentId = parentTopic.Id;
                 subTopic.Level = parentTopic.Level + 1;
+                _logger.LogDebug($"Sub-topic: [{subTopic.StartSegmentId}-{subTopic.EndSegmentId}] {subTopic.Topic}");
             }
             
             // Ensure the last sub-topic ends at the parent's end segment
             if (subTopics.Any())
             {
-                subTopics.Last().EndSegmentId = parentTopic.EndSegmentId;
+                var lastTopic = subTopics.Last();
+                if (lastTopic.EndSegmentId != parentTopic.EndSegmentId)
+                {
+                    _logger.LogDebug($"Adjusting last sub-topic end from {lastTopic.EndSegmentId} to {parentTopic.EndSegmentId}");
+                    lastTopic.EndSegmentId = parentTopic.EndSegmentId;
+                }
             }
             
-            _logger.LogInformation($"Successfully segmented sub-topic '{parentTopic.Topic}' into {subTopics.Count} sub-topics");
+            _logger.LogInformation($"✅ Successfully segmented '{parentTopic.Topic}' into {subTopics.Count} sub-topics");
             return subTopics;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Failed to segment sub-topic: {parentTopic.Topic}");
+            _logger.LogError(ex, $"❌ Failed to segment sub-topic: {parentTopic.Topic}");
+            _logger.LogError($"Exception details: {ex.Message}");
+            _logger.LogError($"Stack trace: {ex.StackTrace}");
             throw;
         }
     }
