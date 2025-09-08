@@ -107,7 +107,7 @@
     {
         var parameters = new DialogParameters
         {
-            ["AllowedPaths"] = new List<string> { Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) },
+            ["AllowedPaths"] = new List<string>(), // Empty list allows full filesystem access
             ["FileExtensions"] = new[] { ".mp4", ".MP4" },
             ["InitialPath"] = _selectedVideoPath
         };
@@ -164,7 +164,7 @@
     {
         var parameters = new DialogParameters
         {
-            ["AllowedPaths"] = new List<string> { Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) },
+            ["AllowedPaths"] = new List<string>(), // Empty list allows full filesystem access
             ["FileExtensions"] = new[] { ".json", ".JSON" },
             ["InitialPath"] = _outputJsonPath
         };
@@ -221,12 +221,12 @@
     {
         var parameters = new DialogParameters
         {
-            ["AllowedPaths"] = new List<string> { 
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "StreamClipper")
-            },
+            ["AllowedPaths"] = new List<string>(), // Empty list allows full filesystem access
             ["FileExtensions"] = new[] { ".scproject.json" },
-            ["InitialPath"] = null
+            ["InitialPath"] = Path.Combine(
+                Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\StreamClipper" : 
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "StreamClipper")
+            )
         };
 
         var options = new DialogOptions 

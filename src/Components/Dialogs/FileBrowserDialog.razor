@@ -16,15 +16,32 @@
                 <MudPaper Elevation="1" Class="pa-2" Style="height: 100%; overflow-y: auto;">
                     <MudText Typo="Typo.subtitle2" Class="mb-2">Folders</MudText>
                     <MudTreeView T="string" Dense="true" ExpandOnClick="false">
-                        @foreach (var allowedPath in AllowedPaths)
+                        @if (AllowedPaths.Any())
                         {
-                            <MudTreeViewItem @bind-Expanded="@_expandedFolders[allowedPath]" 
-                                           Value="@allowedPath" 
-                                           Text="@(string.IsNullOrEmpty(Path.GetFileName(allowedPath)) ? allowedPath : Path.GetFileName(allowedPath))" 
-                                           Icon="@Icons.Material.Filled.Computer"
-                                           OnClick="@((MouseEventArgs e) => NavigateToPath(allowedPath))">
-                                @RenderSubfolders(allowedPath)
-                            </MudTreeViewItem>
+                            @foreach (var allowedPath in AllowedPaths)
+                            {
+                                <MudTreeViewItem @bind-Expanded="@_expandedFolders[allowedPath]" 
+                                               Value="@allowedPath" 
+                                               Text="@(string.IsNullOrEmpty(Path.GetFileName(allowedPath)) ? allowedPath : Path.GetFileName(allowedPath))" 
+                                               Icon="@Icons.Material.Filled.Computer"
+                                               OnClick="@((MouseEventArgs e) => NavigateToPath(allowedPath))">
+                                    @RenderSubfolders(allowedPath)
+                                </MudTreeViewItem>
+                            }
+                        }
+                        else
+                        {
+                            @* Show root drives when no paths are restricted *@
+                            @foreach (var drive in GetAvailableDrives())
+                            {
+                                <MudTreeViewItem @bind-Expanded="@_expandedFolders[drive]" 
+                                               Value="@drive" 
+                                               Text="@drive" 
+                                               Icon="@Icons.Material.Filled.Storage"
+                                               OnClick="@((MouseEventArgs e) => NavigateToPath(drive))">
+                                    @RenderSubfolders(drive)
+                                </MudTreeViewItem>
+                            }
                         }
                     </MudTreeView>
                 </MudPaper>
@@ -158,31 +175,35 @@
         }
         
         // Determine starting path
-        if (!string.IsNullOrEmpty(InitialPath) && File.Exists(InitialPath))
+        if (!string.IsNullOrEmpty(InitialPath))
         {
-            // Start in the directory of the initial file
-            var directory = Path.GetDirectoryName(InitialPath);
-            if (!string.IsNullOrEmpty(directory) && IsPathAllowed(directory))
+            if (File.Exists(InitialPath))
             {
-                _currentPath = directory;
-                _selectedFile = InitialPath;
+                // Start in the directory of the initial file
+                var directory = Path.GetDirectoryName(InitialPath);
+                if (!string.IsNullOrEmpty(directory))
+                {
+                    _currentPath = directory;
+                    _selectedFile = InitialPath;
+                }
+                else
+                {
+                    _currentPath = GetDefaultStartPath();
+                }
             }
-            else if (AllowedPaths.Any())
+            else if (Directory.Exists(InitialPath))
             {
-                _currentPath = AllowedPaths.First();
+                // InitialPath is a directory
+                _currentPath = InitialPath;
             }
             else
             {
-                _currentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                _currentPath = GetDefaultStartPath();
             }
-        }
-        else if (AllowedPaths.Any())
-        {
-            _currentPath = AllowedPaths.First();
         }
         else
         {
-            _currentPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            _currentPath = GetDefaultStartPath();
         }
         
         RefreshDirectory();
@@ -340,6 +361,32 @@
             _currentPath = parent.FullName;
             _selectedFile = null;
             RefreshDirectory();
+        }
+    }
+    
+    private string GetDefaultStartPath()
+    {
+        if (AllowedPaths.Any())
+            return AllowedPaths.First();
+            
+        return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    }
+    
+    private List<string> GetAvailableDrives()
+    {
+        try
+        {
+            return DriveInfo.GetDrives()
+                .Where(d => d.IsReady)
+                .Select(d => d.Name)
+                .ToList();
+        }
+        catch
+        {
+            // Fallback to C: drive on Windows or root on Unix
+            return Environment.OSVersion.Platform == PlatformID.Win32NT 
+                ? new List<string> { "C:\\" }
+                : new List<string> { "/" };
         }
     }
     
