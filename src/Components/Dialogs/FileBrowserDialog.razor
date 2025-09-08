@@ -34,7 +34,9 @@
                             @* Show root drives when no paths are restricted *@
                             @foreach (var drive in GetAvailableDrives())
                             {
-                                <MudTreeViewItem @bind-Expanded="@_expandedFolders[drive]" 
+                                var expanded = _expandedFolders.ContainsKey(drive) && _expandedFolders[drive];
+                                <MudTreeViewItem Expanded="@expanded"
+                                               ExpandedChanged="@((bool value) => SetDriveExpanded(drive, value))" 
                                                Value="@drive" 
                                                Text="@drive" 
                                                Icon="@Icons.Material.Filled.Storage"
@@ -174,6 +176,15 @@
             _expandedFolders[path] = false;
         }
         
+        // Initialize expanded state for drives if no paths are restricted
+        if (!AllowedPaths.Any())
+        {
+            foreach (var drive in GetAvailableDrives())
+            {
+                _expandedFolders[drive] = false;
+            }
+        }
+        
         // Determine starting path
         if (!string.IsNullOrEmpty(InitialPath))
         {
@@ -292,7 +303,11 @@
         var current = path;
         while (!string.IsNullOrEmpty(current))
         {
-            _expandedFolders[current] = true;
+            if (!_expandedFolders.ContainsKey(current))
+                _expandedFolders[current] = true;
+            else
+                _expandedFolders[current] = true;
+                
             var parent = Directory.GetParent(current);
             if (parent == null) break;
             current = parent.FullName;
@@ -318,12 +333,16 @@
                     builder.AddAttribute(3, "Icon", Icons.Material.Filled.Folder);
                     
                     // Check if this folder is expanded
-                    if (_expandedFolders.ContainsKey(currentDir))
-                    {
-                        builder.AddAttribute(4, "Expanded", _expandedFolders[currentDir]);
-                        builder.AddAttribute(5, "ExpandedChanged", EventCallback.Factory.Create<bool>(this, 
-                            (expanded) => _expandedFolders[currentDir] = expanded));
-                    }
+                    var isExpanded = _expandedFolders.ContainsKey(currentDir) && _expandedFolders[currentDir];
+                    builder.AddAttribute(4, "Expanded", isExpanded);
+                    builder.AddAttribute(5, "ExpandedChanged", EventCallback.Factory.Create<bool>(this, 
+                        (expanded) => 
+                        {
+                            if (!_expandedFolders.ContainsKey(currentDir))
+                                _expandedFolders[currentDir] = expanded;
+                            else
+                                _expandedFolders[currentDir] = expanded;
+                        }));
                     
                     builder.AddAttribute(6, "OnClick", EventCallback.Factory.Create<MouseEventArgs>(this, (e) => NavigateToPath(currentDir)));
                     builder.AddAttribute(7, "ChildContent", RenderSubfolders(currentDir));
@@ -387,6 +406,18 @@
             return Environment.OSVersion.Platform == PlatformID.Win32NT 
                 ? new List<string> { "C:\\" }
                 : new List<string> { "/" };
+        }
+    }
+    
+    private void SetDriveExpanded(string drive, bool expanded)
+    {
+        if (!_expandedFolders.ContainsKey(drive))
+        {
+            _expandedFolders[drive] = expanded;
+        }
+        else
+        {
+            _expandedFolders[drive] = expanded;
         }
     }
     
