@@ -1,6 +1,10 @@
 @page "/"
+@using StreamClipper.Models
+@using StreamClipper.Services
+@using StreamClipper.Components
 @inject IDialogService DialogService
 @inject WhisperConnector WhisperConnector
+@inject TranscriptionService TranscriptionService
 @inject ISnackbar Snackbar
 
 <PageTitle>StreamClipper</PageTitle>
@@ -45,9 +49,18 @@
                                 <MudText>Run Whisper</MudText>
                             }
                         </MudButton>
+                        
+                        <MudButton Variant="Variant.Outlined" 
+                                 Color="Color.Info" 
+                                 StartIcon="@Icons.Material.Filled.FileOpen"
+                                 OnClick="SelectJsonFile"
+                                 Disabled="@_isProcessing"
+                                 Class="ml-2">
+                            Load JSON
+                        </MudButton>
                     </MudItem>
                     
-                    @if (!string.IsNullOrEmpty(_outputJsonPath))
+                    @if (!string.IsNullOrEmpty(_outputJsonPath) && _loadedTranscription == null)
                     {
                         <MudItem xs="12">
                             <MudAlert Severity="Severity.Success" Icon="@Icons.Material.Filled.CheckCircle">
@@ -58,6 +71,15 @@
                 </MudGrid>
             </MudPaper>
         </MudItem>
+        
+        @if (_loadedTranscription != null)
+        {
+            <MudItem xs="12">
+                <MudPaper Class="pa-4">
+                    <TranscriptionViewer Transcription="@_loadedTranscription" />
+                </MudPaper>
+            </MudItem>
+        }
     </MudGrid>
 </MudContainer>
 
@@ -65,6 +87,7 @@
     private string? _selectedVideoPath;
     private string? _outputJsonPath;
     private bool _isProcessing;
+    private WhisperTranscription? _loadedTranscription;
 
     private async Task SelectVideoFile()
     {
@@ -103,6 +126,9 @@
         {
             _outputJsonPath = await WhisperConnector.RunWhisperAsync(_selectedVideoPath);
             Snackbar.Add($"Transcription completed successfully!", Severity.Success);
+            
+            // Auto-load the generated JSON
+            await LoadTranscriptionFromFile(_outputJsonPath);
         }
         catch (Exception ex)
         {
@@ -111,6 +137,51 @@
         finally
         {
             _isProcessing = false;
+        }
+    }
+    
+    private async Task SelectJsonFile()
+    {
+        var parameters = new DialogParameters
+        {
+            ["AllowedPaths"] = new List<string> { Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) },
+            ["FileExtensions"] = new[] { ".json", ".JSON" },
+            ["InitialPath"] = _outputJsonPath
+        };
+
+        var options = new DialogOptions 
+        { 
+            MaxWidth = MaxWidth.Large,
+            FullWidth = true
+        };
+
+        var dialog = await DialogService.ShowAsync<FileBrowserDialog>("Select JSON Transcription File", parameters, options);
+        var result = await dialog.Result;
+
+        if (result != null && !result.Canceled && result.Data is string selectedPath)
+        {
+            await LoadTranscriptionFromFile(selectedPath);
+        }
+    }
+    
+    private async Task LoadTranscriptionFromFile(string filePath)
+    {
+        try
+        {
+            _loadedTranscription = await TranscriptionService.LoadTranscriptionAsync(filePath);
+            if (_loadedTranscription != null)
+            {
+                Snackbar.Add($"Transcription loaded successfully!", Severity.Success);
+                StateHasChanged();
+            }
+            else
+            {
+                Snackbar.Add($"Failed to load transcription file", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading transcription: {ex.Message}", Severity.Error);
         }
     }
 }

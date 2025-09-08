@@ -1,0 +1,191 @@
+@using StreamClipper.Models
+@using StreamClipper.Services
+@inject TranscriptionService TranscriptionService
+
+<MudGrid>
+    @if (Transcription != null)
+    {
+        <MudItem xs="12">
+            <MudPaper Class="pa-3 mb-3">
+                <MudText Typo="Typo.subtitle1" Color="Color.Primary">
+                    @TranscriptionService.GetTranscriptionSummary(Transcription)
+                </MudText>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-3" Style="height: 600px; overflow-y: auto;">
+                <MudText Typo="Typo.h6" Class="mb-3">Segments</MudText>
+                <MudTextField @bind-Value="_searchText" 
+                            Label="Search transcription" 
+                            Variant="Variant.Outlined"
+                            Adornment="Adornment.End"
+                            AdornmentIcon="@Icons.Material.Filled.Search"
+                            Class="mb-3" />
+                
+                <MudList T="TranscriptionSegment" Dense="true">
+                    @foreach (var segment in GetFilteredSegments())
+                    {
+                        <MudListItem T="TranscriptionSegment" 
+                                   OnClick="@(() => SelectSegment(segment))"
+                                   Style="@(segment == _selectedSegment ? "background-color: var(--mud-palette-primary-hover);" : "cursor: pointer;")">
+                            <div>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    @TranscriptionService.FormatTimestamp(segment.Start) - @TranscriptionService.FormatTimestamp(segment.End)
+                                </MudText>
+                                <MudText Typo="Typo.body2" Class="text-truncate">
+                                    @segment.Text.Trim()
+                                </MudText>
+                            </div>
+                        </MudListItem>
+                        <MudDivider />
+                    }
+                </MudList>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="8">
+            <MudPaper Class="pa-3" Style="height: 600px; overflow-y: auto;">
+                <MudText Typo="Typo.h6" Class="mb-3">Detailed View</MudText>
+                
+                @if (_selectedSegment != null)
+                {
+                    <MudCard Elevation="0">
+                        <MudCardContent>
+                            <MudGrid>
+                                <MudItem xs="12">
+                                    <MudText Typo="Typo.subtitle2" Color="Color.Primary">
+                                        Segment #@(_selectedSegment.Id) | @TranscriptionService.FormatTimestamp(_selectedSegment.Start) - @TranscriptionService.FormatTimestamp(_selectedSegment.End)
+                                    </MudText>
+                                </MudItem>
+                                
+                                <MudItem xs="12">
+                                    <MudText Typo="Typo.body1" Class="mt-2 mb-3">
+                                        @_selectedSegment.Text
+                                    </MudText>
+                                </MudItem>
+
+                                @if (_selectedSegment.Words != null && _selectedSegment.Words.Any())
+                                {
+                                    <MudItem xs="12">
+                                        <MudText Typo="Typo.subtitle2" Class="mb-2">Word-level Timestamps</MudText>
+                                        <MudPaper Elevation="1" Class="pa-2" Style="max-height: 300px; overflow-y: auto;">
+                                            <MudGrid Spacing="1">
+                                                @foreach (var word in _selectedSegment.Words)
+                                                {
+                                                    <MudItem xs="12" sm="6" md="4" lg="3">
+                                                        <MudChip T="string" Size="Size.Small" 
+                                                               Color="@GetWordConfidenceColor(word.Probability)"
+                                                               Variant="Variant.Outlined">
+                                                            <MudTooltip Text="@($"{TranscriptionService.FormatTimestamp(word.Start)} - {TranscriptionService.FormatTimestamp(word.End)} | Confidence: {word.Probability:P0}")">
+                                                                <MudText Typo="Typo.caption">@word.Word</MudText>
+                                                            </MudTooltip>
+                                                        </MudChip>
+                                                    </MudItem>
+                                                }
+                                            </MudGrid>
+                                        </MudPaper>
+                                    </MudItem>
+                                }
+
+                                <MudItem xs="12">
+                                    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-2">Technical Details</MudText>
+                                    <MudSimpleTable Hover="true" Dense="true">
+                                        <tbody>
+                                            <tr>
+                                                <td><MudText Typo="Typo.caption">Temperature</MudText></td>
+                                                <td><MudText Typo="Typo.caption">@_selectedSegment.Temperature.ToString("F3")</MudText></td>
+                                            </tr>
+                                            <tr>
+                                                <td><MudText Typo="Typo.caption">Avg Log Probability</MudText></td>
+                                                <td><MudText Typo="Typo.caption">@_selectedSegment.AvgLogprob.ToString("F3")</MudText></td>
+                                            </tr>
+                                            <tr>
+                                                <td><MudText Typo="Typo.caption">Compression Ratio</MudText></td>
+                                                <td><MudText Typo="Typo.caption">@_selectedSegment.CompressionRatio.ToString("F3")</MudText></td>
+                                            </tr>
+                                            <tr>
+                                                <td><MudText Typo="Typo.caption">No Speech Probability</MudText></td>
+                                                <td><MudText Typo="Typo.caption">@_selectedSegment.NoSpeechProb.ToString("P1")</MudText></td>
+                                            </tr>
+                                        </tbody>
+                                    </MudSimpleTable>
+                                </MudItem>
+                            </MudGrid>
+                        </MudCardContent>
+                    </MudCard>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-4">
+                        Select a segment from the list to view details
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Class="pa-3">
+                <MudText Typo="Typo.h6" Class="mb-3">Full Transcript</MudText>
+                <MudPaper Elevation="1" Class="pa-3" Style="max-height: 400px; overflow-y: auto;">
+                    <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">
+                        @Transcription.Text
+                    </MudText>
+                </MudPaper>
+            </MudPaper>
+        </MudItem>
+    }
+    else
+    {
+        <MudItem xs="12">
+            <MudPaper Class="pa-4 text-center">
+                <MudIcon Icon="@Icons.Material.Filled.Subtitles" Size="Size.Large" Color="Color.Secondary" />
+                <MudText Typo="Typo.h6" Color="Color.Secondary" Class="mt-3">
+                    No transcription loaded
+                </MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Process a video file or load an existing JSON transcription
+                </MudText>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    [Parameter] public WhisperTranscription? Transcription { get; set; }
+    [Parameter] public EventCallback<TranscriptionSegment> OnSegmentSelected { get; set; }
+
+    private TranscriptionSegment? _selectedSegment;
+    private string _searchText = string.Empty;
+
+    private IEnumerable<TranscriptionSegment> GetFilteredSegments()
+    {
+        if (Transcription?.Segments == null)
+            return Enumerable.Empty<TranscriptionSegment>();
+
+        if (string.IsNullOrWhiteSpace(_searchText))
+            return Transcription.Segments;
+
+        return Transcription.Segments.Where(s => 
+            s.Text.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SelectSegment(TranscriptionSegment segment)
+    {
+        _selectedSegment = segment;
+        OnSegmentSelected.InvokeAsync(segment);
+    }
+
+    private Color GetWordConfidenceColor(double? probability)
+    {
+        if (!probability.HasValue)
+            return Color.Default;
+
+        return probability.Value switch
+        {
+            >= 0.9 => Color.Success,
+            >= 0.7 => Color.Warning,
+            _ => Color.Error
+        };
+    }
+}

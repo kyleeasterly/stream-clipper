@@ -12,6 +12,7 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<EmbeddingFileHandler>();
 builder.Services.AddScoped<WhisperConnector>();
+builder.Services.AddScoped<TranscriptionService>();
 
 // Configure SignalR for larger file uploads
 builder.Services.AddServerSideBlazor()
