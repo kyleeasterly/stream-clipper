@@ -249,7 +249,7 @@
             
             // Get files with matching extensions
             _files = Directory.GetFiles(_currentPath)
-                .Where(f => FileExtensions.Contains(Path.GetExtension(f).ToLower()))
+                .Where(f => MatchesFileExtensions(f))
                 .OrderBy(f => f)
                 .ToList();
                 
@@ -419,6 +419,24 @@
         {
             _expandedFolders[drive] = expanded;
         }
+    }
+    
+    private bool MatchesFileExtensions(string filePath)
+    {
+        if (FileExtensions == null || !FileExtensions.Any())
+            return true;
+            
+        var fileName = Path.GetFileName(filePath).ToLower();
+        
+        // Check for compound extensions (like .scproject.json)
+        foreach (var ext in FileExtensions)
+        {
+            var lowerExt = ext.ToLower();
+            if (fileName.EndsWith(lowerExt))
+                return true;
+        }
+        
+        return false;
     }
     
     private async Task SelectFile(string file)
