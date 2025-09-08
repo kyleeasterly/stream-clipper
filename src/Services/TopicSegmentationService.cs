@@ -65,8 +65,7 @@ Important: Do not include every segment ID, only the starting ID of each new top
             // Call GPT-5-mini
             var response = await _openAiConnector.GenerateCompletionAsync(
                 systemPrompt,
-                userMessage,
-                temperature: 0.3f // Lower temperature for more consistent formatting
+                userMessage
             );
 
             // Parse the response into topic segments

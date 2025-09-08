@@ -24,8 +24,7 @@ public class OpenAiConnector
 
     public async Task<string> GenerateCompletionAsync(
         string systemPrompt, 
-        string userMessage, 
-        float temperature = 0.7f)
+        string userMessage)
     {
         var messages = new List<ChatMessage>
         {
@@ -33,12 +32,9 @@ public class OpenAiConnector
             new UserChatMessage(userMessage)
         };
 
-        var options = new ChatCompletionOptions
-        {
-            Temperature = temperature
-        };
 
-        var completion = await _chatClient.CompleteChatAsync(messages, options);
+
+        var completion = await _chatClient.CompleteChatAsync(messages);
         
         return completion.Value.Content[0].Text;
     }
@@ -73,7 +69,6 @@ public class OpenAiConnector
         string systemPromptTemplate,
         string userMessageTemplate,
         Dictionary<string, List<string>> templateFieldValues,
-        float temperature = 0.7f,
         int maxParallelism = 5,
         int multiplier = 1,
         IProgress<BulkCompletionProgress>? progress = null)
@@ -94,7 +89,6 @@ public class OpenAiConnector
                     systemPromptTemplate, 
                     userMessageTemplate, 
                     combination, 
-                    temperature, 
                     semaphore,
                     () =>
                     {
@@ -119,7 +113,6 @@ public class OpenAiConnector
         string systemPromptTemplate,
         string userMessageTemplate,
         Dictionary<string, string> fieldValues,
-        float temperature,
         SemaphoreSlim semaphore,
         Action onCompleted)
     {
@@ -129,7 +122,7 @@ public class OpenAiConnector
             var systemPrompt = ReplaceTemplateFields(systemPromptTemplate, fieldValues);
             var userMessage = ReplaceTemplateFields(userMessageTemplate, fieldValues);
 
-            var generatedContent = await GenerateCompletionAsync(systemPrompt, userMessage, temperature);
+            var generatedContent = await GenerateCompletionAsync(systemPrompt, userMessage);
 
             onCompleted();
 
