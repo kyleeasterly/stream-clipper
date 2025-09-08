@@ -89,7 +89,8 @@
                     <TranscriptionViewer 
                         Transcription="@(_currentProject?.Transcription ?? _loadedTranscription)" 
                         Project="@_currentProject"
-                        OnProjectCreated="@HandleProjectCreated" />
+                        OnProjectCreated="@HandleProjectCreated"
+                        OnProjectUpdated="@HandleProjectUpdated" />
                 </MudPaper>
             </MudItem>
         }
@@ -214,6 +215,12 @@
         // Save the updated project with paths
         await TopicSegmentationService.SaveProjectAsync(_currentProject);
         
+        StateHasChanged();
+    }
+    
+    private void HandleProjectUpdated(StreamClipperProject project)
+    {
+        _currentProject = project;
         StateHasChanged();
     }
     

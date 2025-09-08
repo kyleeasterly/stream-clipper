@@ -9,9 +9,44 @@
     {
         <MudItem xs="12">
             <MudPaper Class="pa-3 mb-3">
-                <MudText Typo="Typo.subtitle1" Color="Color.Primary">
-                    @TranscriptionService.GetTranscriptionSummary(Transcription)
-                </MudText>
+                <MudGrid>
+                    <MudItem xs="12" md="8">
+                        <MudText Typo="Typo.subtitle1" Color="Color.Primary">
+                            @TranscriptionService.GetTranscriptionSummary(Transcription)
+                        </MudText>
+                    </MudItem>
+                    <MudItem xs="12" md="4" Class="d-flex justify-end align-center">
+                        @if (Project != null)
+                        {
+                            <MudButton Variant="Variant.Filled"
+                                     Color="@(Project.HasUnsavedChanges ? Color.Warning : Color.Default)"
+                                     StartIcon="@Icons.Material.Filled.Save"
+                                     OnClick="SaveProject"
+                                     Disabled="@_isSaving">
+                                @if (_isSaving)
+                                {
+                                    <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                                    <MudText Class="ms-2">Saving...</MudText>
+                                }
+                                else if (Project.HasUnsavedChanges)
+                                {
+                                    <MudText>Save Changes</MudText>
+                                }
+                                else
+                                {
+                                    <MudText>Save Project</MudText>
+                                }
+                            </MudButton>
+                            
+                            @if (Project.LastSavedAt.HasValue)
+                            {
+                                <MudText Typo="Typo.caption" Class="ml-2">
+                                    Last saved: @Project.LastSavedAt.Value.ToLocalTime().ToString("g")
+                                </MudText>
+                            }
+                        }
+                    </MudItem>
+                </MudGrid>
             </MudPaper>
         </MudItem>
 
@@ -35,7 +70,7 @@
                                 @if (Project?.Topics?.Any() == true)
                                 {
                                     <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" Class="pa-1 mb-1">
-                                        @TopicSegmentationService.GetTopicForSegment(Project.Topics, segment.Id)
+                                        @GetTopicPathForSegment(segment.Id)
                                     </MudChip>
                                 }
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">
@@ -135,7 +170,7 @@
         <MudItem xs="12">
             <MudPaper Class="pa-3">
                 <div Class="d-flex justify-space-between align-center mb-3">
-                    <MudText Typo="Typo.h6">Full Transcript</MudText>
+                    <MudText Typo="Typo.h6">Topic Outline</MudText>
                     @if (Project == null && Transcription != null)
                     {
                         <MudButton Variant="Variant.Filled"
@@ -158,22 +193,24 @@
                 
                 @if (Project?.Topics?.Any() == true)
                 {
-                    <MudPaper Elevation="1" Class="pa-3 mb-3">
-                        <MudText Typo="Typo.subtitle1" Class="mb-2">Topic Outline</MudText>
-                        <MudList T="TopicSegment" Dense="true">
-                            @foreach (var topic in Project.Topics)
-                            {
-                                <MudListItem T="TopicSegment">
-                                    <MudText>
-                                        <strong>[@topic.StartSegmentId-@topic.EndSegmentId]</strong> @topic.Topic
-                                    </MudText>
-                                </MudListItem>
-                            }
-                        </MudList>
+                    <MudPaper Elevation="1" Class="pa-3 mb-3" Style="max-height: 600px; overflow-y: auto;">
+                        @foreach (var topic in Project.Topics)
+                        {
+                            <TopicTreeItem Topic="@topic"
+                                         Level="0"
+                                         IsExpanded="@IsTopicExpanded(topic)"
+                                         IsProcessing="@(_isProcessingTopic == topic.Id)"
+                                         ProcessingTopicId="@_isProcessingTopic"
+                                         IsExpandedFunc="@IsTopicExpanded"
+                                         OnToggleExpansion="@HandleToggleExpansion"
+                                         OnTopicClick="@HandleTopicClick"
+                                         OnRegenerate="@RegenerateTopic" />
+                        }
                     </MudPaper>
                 }
                 
                 <MudPaper Elevation="1" Class="pa-3" Style="max-height: 400px; overflow-y: auto;">
+                    <MudText Typo="Typo.h6" Class="mb-2">Full Transcript</MudText>
                     <MudText Typo="Typo.body1" Style="white-space: pre-wrap;">
                         @(Transcription?.Text ?? "")
                     </MudText>
@@ -202,10 +239,14 @@
     [Parameter] public StreamClipperProject? Project { get; set; }
     [Parameter] public EventCallback<TranscriptionSegment> OnSegmentSelected { get; set; }
     [Parameter] public EventCallback<StreamClipperProject> OnProjectCreated { get; set; }
+    [Parameter] public EventCallback<StreamClipperProject> OnProjectUpdated { get; set; }
 
     private TranscriptionSegment? _selectedSegment;
     private string _searchText = string.Empty;
     private bool _isProcessingTopics = false;
+    private bool _isSaving = false;
+    private string? _isProcessingTopic = null;
+    private HashSet<string> _expandedTopics = new();
 
     private IEnumerable<TranscriptionSegment> GetFilteredSegments()
     {
@@ -266,5 +307,188 @@
             _isProcessingTopics = false;
             StateHasChanged();
         }
+    }
+    
+    private bool IsTopicExpanded(TopicSegment topic) => _expandedTopics.Contains(topic.Id);
+    
+    private async Task HandleToggleExpansion(TopicSegment topic)
+    {
+        if (_expandedTopics.Contains(topic.Id))
+            _expandedTopics.Remove(topic.Id);
+        else
+            _expandedTopics.Add(topic.Id);
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+    
+    private async Task HandleTopicClick(TopicSegment topic)
+    {
+        if (topic.IsSingleSegment || _isProcessingTopic != null || Transcription?.Segments == null)
+            return;
+            
+        // If topic already has children, just expand/collapse
+        if (topic.HasChildren)
+        {
+            await HandleToggleExpansion(topic);
+            return;
+        }
+        
+        _isProcessingTopic = topic.Id;
+        StateHasChanged();
+        
+        try
+        {
+            var subTopics = await TopicSegmentationService.SegmentSubtopicAsync(topic, Transcription.Segments);
+            
+            if (subTopics.Any())
+            {
+                topic.Children = subTopics;
+                _expandedTopics.Add(topic.Id);
+                
+                if (Project != null)
+                {
+                    Project.HasUnsavedChanges = true;
+                    await OnProjectUpdated.InvokeAsync(Project);
+                }
+                
+                Snackbar.Add($"Generated {subTopics.Count} sub-topics for '{topic.Topic}'", Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("No sub-topics could be identified", Severity.Info);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to generate sub-topics: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isProcessingTopic = null;
+            StateHasChanged();
+        }
+    }
+    
+    private async Task RegenerateTopic(TopicSegment topic)
+    {
+        if (!topic.CanRegenerate || _isProcessingTopic != null || Project == null || Transcription?.Segments == null)
+            return;
+            
+        _isProcessingTopic = topic.Id;
+        StateHasChanged();
+        
+        try
+        {
+            // Find parent topic if this is not a top-level topic
+            var parentTopic = FindParentTopic(Project.Topics, topic);
+            
+            List<TopicSegment> newTopics;
+            if (parentTopic != null)
+            {
+                // Regenerating a sub-topic
+                newTopics = await TopicSegmentationService.SegmentSubtopicAsync(parentTopic, Transcription.Segments);
+                if (newTopics.Any())
+                {
+                    parentTopic.Children = newTopics;
+                }
+            }
+            else
+            {
+                // Regenerating top-level topics
+                newTopics = await TopicSegmentationService.RegenerateTopicAsync(topic, Transcription.Segments, null);
+                if (newTopics.Any())
+                {
+                    Project.Topics = newTopics;
+                }
+            }
+            
+            Project.HasUnsavedChanges = true;
+            await OnProjectUpdated.InvokeAsync(Project);
+            
+            Snackbar.Add("Topics regenerated successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to regenerate topics: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isProcessingTopic = null;
+            StateHasChanged();
+        }
+    }
+    
+    private TopicSegment? FindParentTopic(List<TopicSegment> topics, TopicSegment childTopic)
+    {
+        foreach (var topic in topics)
+        {
+            if (topic.Children?.Any(c => c.Id == childTopic.Id) == true)
+            {
+                return topic;
+            }
+            
+            if (topic.Children != null)
+            {
+                var found = FindParentTopic(topic.Children, childTopic);
+                if (found != null)
+                    return found;
+            }
+        }
+        return null;
+    }
+    
+    private async Task SaveProject()
+    {
+        if (Project == null)
+            return;
+            
+        _isSaving = true;
+        StateHasChanged();
+        
+        try
+        {
+            await TopicSegmentationService.SaveProjectManuallyAsync(Project);
+            await OnProjectUpdated.InvokeAsync(Project);
+            Snackbar.Add("Project saved successfully!", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to save project: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+            StateHasChanged();
+        }
+    }
+    
+    private string GetTopicPathForSegment(int segmentId)
+    {
+        if (Project?.Topics == null)
+            return "Unknown Topic";
+            
+        var path = new List<string>();
+        FindTopicPath(Project.Topics, segmentId, path);
+        
+        return path.Any() ? string.Join(" > ", path) : "Unknown Topic";
+    }
+    
+    private bool FindTopicPath(List<TopicSegment> topics, int segmentId, List<string> path)
+    {
+        foreach (var topic in topics)
+        {
+            if (segmentId >= topic.StartSegmentId && segmentId <= topic.EndSegmentId)
+            {
+                path.Add(topic.Topic);
+                
+                if (topic.Children != null)
+                {
+                    FindTopicPath(topic.Children, segmentId, path);
+                }
+                
+                return true;
+            }
+        }
+        return false;
     }
 }

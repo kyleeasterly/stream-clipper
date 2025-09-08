@@ -237,4 +237,129 @@ Important: Do not include every segment ID, only the starting ID of each new top
         
         return topic?.Topic ?? "Unknown Topic";
     }
+
+    public async Task<List<TopicSegment>> SegmentSubtopicAsync(
+        TopicSegment parentTopic,
+        List<TranscriptionSegment> allSegments)
+    {
+        if (parentTopic.IsSingleSegment)
+        {
+            _logger.LogWarning("Cannot segment a single segment");
+            return new List<TopicSegment>();
+        }
+
+        try
+        {
+            // Get only the segments in the parent topic's range
+            var relevantSegments = allSegments
+                .Where(s => s.Id >= parentTopic.StartSegmentId && s.Id <= parentTopic.EndSegmentId)
+                .ToList();
+
+            if (!relevantSegments.Any())
+            {
+                _logger.LogWarning("No segments found in the specified range");
+                return new List<TopicSegment>();
+            }
+
+            // Prepare the message with the subset of segments
+            var userMessage = PrepareSegmentMessage(relevantSegments);
+            
+            // Modified system prompt for sub-segmentation
+            var systemPrompt = $@"You are analyzing a portion of a video transcript that covers the topic: '{parentTopic.Topic}'.
+This section spans segments {parentTopic.StartSegmentId} to {parentTopic.EndSegmentId}.
+
+Your task is to identify sub-topics within this specific section and create a more detailed outline.
+
+Instructions:
+1. Read through the provided segments and identify where sub-topics change
+2. Group consecutive segments that discuss the same sub-topic
+3. Return ONLY the starting segment ID and sub-topic name for each section
+4. Use the exact format: [ID] [Sub-topic Name]
+5. Be concise with sub-topic names (2-6 words typically)
+6. Only mark significant sub-topic changes within this section
+7. The first sub-topic should start at segment {parentTopic.StartSegmentId}
+8. All segment IDs must be within the range {parentTopic.StartSegmentId} to {parentTopic.EndSegmentId}
+
+Example output:
+{parentTopic.StartSegmentId} Initial setup steps
+{parentTopic.StartSegmentId + 3} Configuration details
+{parentTopic.StartSegmentId + 7} Testing the setup
+
+Important: Only return segment IDs that are within the parent topic's range.";
+
+            // Call GPT-5-mini
+            var response = await _openAiConnector.GenerateCompletionAsync(
+                systemPrompt,
+                userMessage
+            );
+
+            // Parse the response into sub-topics
+            var subTopics = ParseTopicResponse(response, parentTopic.EndSegmentId + 1);
+            
+            // Set the parent-child relationships
+            foreach (var subTopic in subTopics)
+            {
+                subTopic.ParentId = parentTopic.Id;
+                subTopic.Level = parentTopic.Level + 1;
+            }
+            
+            // Ensure the last sub-topic ends at the parent's end segment
+            if (subTopics.Any())
+            {
+                subTopics.Last().EndSegmentId = parentTopic.EndSegmentId;
+            }
+            
+            _logger.LogInformation($"Successfully segmented sub-topic '{parentTopic.Topic}' into {subTopics.Count} sub-topics");
+            return subTopics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to segment sub-topic: {parentTopic.Topic}");
+            throw;
+        }
+    }
+
+    public async Task<List<TopicSegment>> RegenerateTopicAsync(
+        TopicSegment topicToRegenerate,
+        List<TranscriptionSegment> allSegments,
+        TopicSegment? parentTopic = null)
+    {
+        if (!topicToRegenerate.CanRegenerate)
+        {
+            throw new InvalidOperationException("Cannot regenerate a topic that has children");
+        }
+
+        _logger.LogInformation($"Regenerating topic: {topicToRegenerate.Topic}");
+        
+        if (parentTopic != null)
+        {
+            // Regenerating a sub-topic
+            return await SegmentSubtopicAsync(parentTopic, allSegments);
+        }
+        else
+        {
+            // Regenerating top-level topics
+            var transcription = new WhisperTranscription { Segments = allSegments };
+            return await SegmentTranscriptAsync(transcription);
+        }
+    }
+
+    public async Task SaveProjectManuallyAsync(StreamClipperProject project)
+    {
+        try
+        {
+            project.LastSavedAt = DateTime.UtcNow;
+            project.UpdatedAt = DateTime.UtcNow;
+            project.HasUnsavedChanges = false;
+            
+            await SaveProjectAsync(project);
+            
+            _logger.LogInformation($"Project manually saved at: {project.LastSavedAt}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to manually save project");
+            throw;
+        }
+    }
 }

@@ -1,4 +1,6 @@
-﻿namespace StreamClipper.Models;
+﻿using System.Text.Json.Serialization;
+
+namespace StreamClipper.Models;
 
 public class StreamClipperProject
 {
@@ -8,7 +10,11 @@ public class StreamClipperProject
     public string? WhisperJsonPath { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? LastSavedAt { get; set; }
     public WhisperTranscription? Transcription { get; set; }
     public List<TopicSegment> Topics { get; set; } = new();
     public Dictionary<string, object> Metadata { get; set; } = new();
+    
+    [JsonIgnore]
+    public bool HasUnsavedChanges { get; set; } = false;
 }

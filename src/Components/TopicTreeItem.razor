@@ -1,0 +1,108 @@
+@using StreamClipper.Models
+
+<div style="@($"margin-left: {Level * 24}px;")" class="mb-2">
+    <div class="d-flex align-center">
+        @if (!Topic.IsSingleSegment)
+        {
+            <MudIconButton Icon="@(IsExpanded ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                         Size="Size.Small"
+                         OnClick="@ToggleExpansion"
+                         Disabled="@IsProcessing" />
+        }
+        else
+        {
+            <div style="width: 40px;"></div>
+        }
+        
+        <div class="d-flex align-center flex-grow-1" 
+             @onclick="@HandleClick"
+             style="cursor: @(Topic.IsSingleSegment || IsProcessing ? "default" : "pointer");">
+            <MudIcon Icon="@GetIcon()" Size="Size.Small" Class="mr-2" />
+            <MudText>
+                <strong>[@Topic.StartSegmentId-@Topic.EndSegmentId]</strong> @Topic.Topic
+            </MudText>
+            @if (Topic.SegmentCount > 1)
+            {
+                <MudChip T="string" Size="Size.Small" Color="Color.Info" Class="ml-2">
+                    @Topic.SegmentCount segments
+                </MudChip>
+            }
+        </div>
+        
+        <div class="d-flex align-center">
+            @if (Topic.CanRegenerate && !Topic.IsSingleSegment)
+            {
+                <MudTooltip Text="Regenerate this level">
+                    <MudIconButton Icon="@Icons.Material.Filled.Refresh"
+                                 Size="Size.Small"
+                                 Color="Color.Secondary"
+                                 OnClick="@(() => OnRegenerate.InvokeAsync(Topic))"
+                                 Disabled="@IsProcessing" />
+                </MudTooltip>
+            }
+            else if (!Topic.CanRegenerate)
+            {
+                <MudTooltip Text="Has children - cannot regenerate">
+                    <MudIcon Icon="@Icons.Material.Filled.Lock"
+                           Size="Size.Small"
+                           Color="Color.Default" />
+                </MudTooltip>
+            }
+            @if (IsProcessing)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+            }
+        </div>
+    </div>
+    
+    @if (IsExpanded && Topic.HasChildren && Topic.Children != null)
+    {
+        @foreach (var child in Topic.Children)
+        {
+            <TopicTreeItem Topic="@child"
+                         Level="@(Level + 1)"
+                         IsExpanded="@IsExpandedFunc(child)"
+                         IsProcessing="@(ProcessingTopicId == child.Id)"
+                         ProcessingTopicId="@ProcessingTopicId"
+                         IsExpandedFunc="@IsExpandedFunc"
+                         OnToggleExpansion="@OnToggleExpansion"
+                         OnTopicClick="@OnTopicClick"
+                         OnRegenerate="@OnRegenerate" />
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public TopicSegment Topic { get; set; } = null!;
+    [Parameter] public int Level { get; set; }
+    [Parameter] public bool IsExpanded { get; set; }
+    [Parameter] public bool IsProcessing { get; set; }
+    [Parameter] public string? ProcessingTopicId { get; set; }
+    [Parameter] public Func<TopicSegment, bool> IsExpandedFunc { get; set; } = null!;
+    [Parameter] public EventCallback<TopicSegment> OnToggleExpansion { get; set; }
+    [Parameter] public EventCallback<TopicSegment> OnTopicClick { get; set; }
+    [Parameter] public EventCallback<TopicSegment> OnRegenerate { get; set; }
+    
+    private async Task ToggleExpansion()
+    {
+        await OnToggleExpansion.InvokeAsync(Topic);
+    }
+    
+    private async Task HandleClick()
+    {
+        if (!Topic.IsSingleSegment && !IsProcessing)
+        {
+            await OnTopicClick.InvokeAsync(Topic);
+        }
+    }
+    
+    private string GetIcon()
+    {
+        if (Topic.IsSingleSegment)
+            return Icons.Material.Filled.Description;
+        else if (Topic.HasChildren)
+            return Icons.Material.Filled.FolderOpen;
+        else
+            return Icons.Material.Filled.Folder;
+    }
+}
