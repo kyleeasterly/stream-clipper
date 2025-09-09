@@ -58,7 +58,7 @@ Instructions:
 1. Read through all the segments and identify where topics change
 2. Group consecutive segments that discuss the same topic
 3. Return ONLY the starting segment ID and topic name for each topic section
-4. Use the exact format: [ID] [Topic Name]
+4. Use the exact format (curly braces identify variables, not literal part of output): {ID} {Topic Name}
 5. Be concise with topic names (2-6 words typically)
 6. Only mark significant topic changes, not minor tangents
 7. The first topic should always start at segment 0
@@ -69,7 +69,7 @@ Example output:
 12 Problem solving
 18 Conclusion and next steps
 
-Important: Do not include every segment ID, only the starting ID of each new topic.";
+Important: Do not include every segment ID, only the starting ID of each new topic. Do not wrap the segment ID in anything i.e. square brackets or parenthesis, follow the example output format exactly.";
 
             // Call GPT-5-mini
             var response = await _openAiConnector.GenerateCompletionAsync(
