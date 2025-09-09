@@ -68,6 +68,18 @@
                                  Class="ml-2">
                             Load Project
                         </MudButton>
+                        
+                        @if (_currentProject != null || _loadedTranscription != null)
+                        {
+                            <MudButton Variant="Variant.Outlined" 
+                                     Color="Color.Warning" 
+                                     StartIcon="@Icons.Material.Filled.Close"
+                                     OnClick="CloseProject"
+                                     Disabled="@_isProcessing"
+                                     Class="ml-2">
+                                Close Project
+                            </MudButton>
+                        }
                     </MudItem>
                     
                     @if (!string.IsNullOrEmpty(_outputJsonPath) && _loadedTranscription == null)
@@ -124,6 +136,8 @@
 
         if (result != null && !result.Canceled && result.Data is string selectedPath)
         {
+            // Clear any existing project when selecting a new video
+            CloseProject();
             _selectedVideoPath = selectedPath;
             _outputJsonPath = null;
         }
@@ -268,5 +282,14 @@
                 Snackbar.Add($"Error loading project: {ex.Message}", Severity.Error);
             }
         }
+    }
+    
+    private void CloseProject()
+    {
+        _currentProject = null;
+        _loadedTranscription = null;
+        _selectedVideoPath = null;
+        _outputJsonPath = null;
+        StateHasChanged();
     }
 }
