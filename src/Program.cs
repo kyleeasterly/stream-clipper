@@ -31,8 +31,10 @@ builder.Services.AddRazorComponents()
 builder.Services.AddMudServices();
 builder.Services.AddSingleton<EmbeddingFileHandler>();
 builder.Services.AddScoped<WhisperConnector>();
+builder.Services.AddScoped<FfmpegConnector>();
 builder.Services.AddScoped<TranscriptionService>();
 builder.Services.AddScoped<TopicSegmentationService>();
+builder.Services.AddScoped<VideoClippingService>();
 
 // Configure SignalR for larger file uploads
 builder.Services.AddServerSideBlazor()

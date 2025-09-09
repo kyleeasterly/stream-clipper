@@ -2,6 +2,7 @@
 @using StreamClipper.Services
 @inject TranscriptionService TranscriptionService
 @inject TopicSegmentationService TopicSegmentationService
+@inject VideoClippingService VideoClippingService
 @inject ISnackbar Snackbar
 @inject ILogger<TranscriptionViewer> Logger
 
@@ -218,6 +219,59 @@
                 </MudPaper>
             </MudPaper>
         </MudItem>
+
+        @if (Project != null && !string.IsNullOrEmpty(Project.OriginalVideoPath))
+        {
+            <MudItem xs="12">
+                <MudPaper Class="pa-3">
+                    <MudText Typo="Typo.h6" Class="mb-3">AI-Directed Clipping</MudText>
+                    
+                    <MudTextField @bind-Value="_directorPrompt"
+                                Label="Director Instructions"
+                                Placeholder="e.g., Create a clip showing the progression from initial setup to final victory"
+                                Lines="3"
+                                Variant="Variant.Outlined"
+                                Class="mb-3" />
+                    
+                    <MudButton Variant="Variant.Filled"
+                             Color="Color.Primary"
+                             StartIcon="@Icons.Material.Filled.Movie"
+                             OnClick="CreateAiDirectedClip"
+                             Disabled="@(_isCreatingClip || string.IsNullOrWhiteSpace(_directorPrompt))">
+                        @if (_isCreatingClip)
+                        {
+                            <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                            <MudText Class="ms-2">Creating Clip...</MudText>
+                        }
+                        else
+                        {
+                            <MudText>Create Clip</MudText>
+                        }
+                    </MudButton>
+                    
+                    @if (!string.IsNullOrEmpty(_lastClipPath))
+                    {
+                        <MudAlert Severity="Severity.Success" Class="mt-3">
+                            <MudText>Clip created successfully!</MudText>
+                            <MudText Typo="Typo.caption">Saved to: @_lastClipPath</MudText>
+                            @if (_lastSelectedSegmentIds?.Any() == true)
+                            {
+                                <MudText Typo="Typo.caption" Class="mt-2">
+                                    Selected segments: @string.Join(", ", _lastSelectedSegmentIds)
+                                </MudText>
+                            }
+                        </MudAlert>
+                    }
+                    
+                    @if (!string.IsNullOrEmpty(_clipError))
+                    {
+                        <MudAlert Severity="Severity.Error" Class="mt-3">
+                            @_clipError
+                        </MudAlert>
+                    }
+                </MudPaper>
+            </MudItem>
+        }
     }
     else
     {
@@ -248,6 +302,13 @@
     private bool _isSaving = false;
     private HashSet<string> _processingTopics = new();
     private HashSet<string> _expandedTopics = new();
+    
+    // AI-directed clipping fields
+    private string _directorPrompt = string.Empty;
+    private bool _isCreatingClip = false;
+    private string? _lastClipPath;
+    private List<int>? _lastSelectedSegmentIds;
+    private string? _clipError;
 
     private IEnumerable<TranscriptionSegment> GetFilteredSegments()
     {
@@ -520,5 +581,43 @@
             }
         }
         return false;
+    }
+    
+    private async Task CreateAiDirectedClip()
+    {
+        if (Transcription == null || Project == null || string.IsNullOrWhiteSpace(_directorPrompt))
+            return;
+            
+        _isCreatingClip = true;
+        _clipError = null;
+        _lastClipPath = null;
+        _lastSelectedSegmentIds = null;
+        
+        try
+        {
+            Logger.LogInformation("Starting AI-directed clip creation");
+            
+            var (outputPath, selectedSegmentIds) = await VideoClippingService.CreateAiDirectedClipAsync(
+                Transcription,
+                Project,
+                _directorPrompt
+            );
+            
+            _lastClipPath = outputPath;
+            _lastSelectedSegmentIds = selectedSegmentIds;
+            
+            Logger.LogInformation($"Clip created successfully: {outputPath}");
+            Snackbar.Add($"Clip created successfully! {selectedSegmentIds.Count} segments selected.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to create AI-directed clip");
+            _clipError = $"Failed to create clip: {ex.Message}";
+            Snackbar.Add($"Failed to create clip: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isCreatingClip = false;
+        }
     }
 }
